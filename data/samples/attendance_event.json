@@ -1,0 +1,9 @@
+{
+  "event_id": "b7e1c2a0-4f3d-4a1e-9c2b-8d6f0a1e2b3c",
+  "event_type": "attendance",
+  "event_time": "2026-10-06T07:46:12+02:00",
+  "student_id": 1001,
+  "class_id": 10,
+  "attendance_date": "2026-10-06",
+  "status": "absent"
+}
