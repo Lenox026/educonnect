@@ -1,0 +1,25 @@
+# Local PostgreSQL for EduConnect. The password is for this laptop demo only.
+# Start: docker compose up -d
+# Stop:  docker compose down
+# Wipe the database: docker compose down -v
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: educonnect-postgres
+    environment:
+      POSTGRES_USER: educonnect
+      POSTGRES_PASSWORD: educonnect
+      POSTGRES_DB: educonnect
+    ports:
+      - "5432:5432"
+    volumes:
+      - educonnect_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U educonnect -d educonnect"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  educonnect_pg:

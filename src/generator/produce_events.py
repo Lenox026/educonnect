@@ -11,6 +11,7 @@ From the project root:
     python src/generator/produce_events.py
 
 The script writes data/generated/events.json. That folder is gitignored.
+Load it afterwards with python src/loader/load_events.py.
 Open data/samples/attendance_event.json to see the shape of one attendance event.
 """
 
