@@ -23,6 +23,9 @@ import psycopg
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
+import redis
+
+from cache import cache_attendance_events  # noqa: E402
 from database import connect  # noqa: E402
 
 DEFAULT_INPUT = ROOT / "data" / "generated" / "events.json"
@@ -37,6 +40,7 @@ def main() -> None:
     with connect() as conn:
         apply_schema(conn, SCHEMA_PATH)
         insert_school(conn, payload)
+    cache_today(payload)
     print_summary(payload)
 
 
@@ -167,6 +171,17 @@ def insert_school(conn, payload: dict) -> None:
             """,
             grades,
         )
+
+
+def cache_today(payload: dict) -> None:
+    """Put today's attendance into Redis. The PostgreSQL load still stands if Redis is down."""
+    try:
+        stored = cache_attendance_events(payload["events"])
+    except redis.RedisError as error:
+        print("PostgreSQL load succeeded. Redis is not running, so today's cache was skipped.")
+        print(error)
+        return
+    print(f"Cached {stored} attendance marks for today in Redis.")
 
 
 def print_summary(payload: dict) -> None:

@@ -7,21 +7,24 @@ Start PostgreSQL, load the fake school, then from the project root run:
 
 Open http://127.0.0.1:8000/docs to try the routes in the browser.
 The body of POST /attendance matches data/samples/attendance_event.json.
+GET /attendance/today reads Redis, not PostgreSQL.
 """
 
 from datetime import date, datetime
 from typing import Literal
 
 import psycopg
+import redis
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
+from cache import list_marks, save_mark, school_today
 from database import connect
 
 app = FastAPI(
     title="EduConnect",
-    description="Record a fake attendance mark and read it back.",
-    version="0.2.0",
+    description="Record a fake attendance mark and read today's marks from Redis.",
+    version="0.3.0",
 )
 
 
@@ -42,7 +45,7 @@ def home():
     return {
         "service": "EduConnect",
         "docs": "/docs",
-        "example": "/students/1001/attendance",
+        "example": "/attendance/today",
     }
 
 
@@ -53,6 +56,10 @@ def health():
             conn.execute("SELECT 1")
     except psycopg.OperationalError:
         raise HTTPException(status_code=503, detail="PostgreSQL is not running.")
+    try:
+        list_marks(school_today())
+    except redis.RedisError:
+        raise HTTPException(status_code=503, detail="Redis is not running.")
     return {"status": "ok"}
 
 
@@ -98,6 +105,21 @@ def list_attendance(student_id: int):
             (student_id,),
         ).fetchall()
     return rows
+
+
+@app.get("/attendance/today")
+def attendance_today(student_id: int | None = None):
+    """Read today's marks from Redis. Pass student_id to see one learner."""
+    day = school_today()
+    try:
+        marks = list_marks(day, student_id)
+    except redis.RedisError:
+        raise HTTPException(status_code=503, detail="Redis is not running.")
+    return {
+        "attendance_date": day.isoformat(),
+        "source": "redis",
+        "marks": marks,
+    }
 
 
 @app.post("/attendance")
@@ -146,4 +168,11 @@ def record_attendance(event: AttendanceEvent):
                 event.event_time,
             ),
         ).fetchone()
-    return row
+    cached = True
+    try:
+        save_mark(event.student_id, event.class_id, event.attendance_date, event.status)
+    except redis.RedisError:
+        cached = False
+    body = dict(row)
+    body["cached"] = cached
+    return body

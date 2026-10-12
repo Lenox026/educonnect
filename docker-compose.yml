@@ -1,4 +1,6 @@
-# Local PostgreSQL for EduConnect. The password is for this laptop demo only.
+# Local PostgreSQL and Redis for EduConnect.
+# The database password is for this laptop demo only.
+# Redis has no password. docker compose down clears today's attendance cache.
 # Start: docker compose up -d
 # Stop:  docker compose down
 # Wipe the database: docker compose down -v
@@ -17,6 +19,17 @@ services:
       - educonnect_pg:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U educonnect -d educonnect"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7
+    container_name: educonnect-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 5s
       retries: 10
