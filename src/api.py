@@ -8,6 +8,7 @@ Start PostgreSQL, load the fake school, then from the project root run:
 Open http://127.0.0.1:8000/docs to try the routes in the browser.
 The body of POST /attendance matches data/samples/attendance_event.json.
 GET /attendance/today reads Redis, not PostgreSQL.
+POST /attendance also publishes the event to Redpanda.
 """
 
 from datetime import date, datetime
@@ -16,15 +17,17 @@ from typing import Literal
 import psycopg
 import redis
 from fastapi import FastAPI, HTTPException
+from kafka.errors import KafkaError
 from pydantic import BaseModel
 
 from cache import list_marks, save_mark, school_today
 from database import connect
+from stream import publish_attendance
 
 app = FastAPI(
     title="EduConnect",
-    description="Record a fake attendance mark and read today's marks from Redis.",
-    version="0.3.0",
+    description="Record a fake attendance mark, cache today in Redis, and publish the event to Redpanda.",
+    version="0.4.0",
 )
 
 
@@ -173,6 +176,12 @@ def record_attendance(event: AttendanceEvent):
         save_mark(event.student_id, event.class_id, event.attendance_date, event.status)
     except redis.RedisError:
         cached = False
+    published = True
+    try:
+        publish_attendance(event.model_dump(mode="json"))
+    except KafkaError:
+        published = False
     body = dict(row)
     body["cached"] = cached
+    body["published"] = published
     return body

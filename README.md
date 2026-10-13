@@ -2,11 +2,12 @@
 
 EduConnect is a small school-data platform for the cloud computing and data engineering capstone. It turns fake attendance and grade events into tables, checks, and later into batch jobs and a serverless notification.
 
-The project currently has three slices you can run on a laptop:
+The project currently has four slices you can run on a laptop:
 
 1. A database shape and a Python script that invents a school.
 2. PostgreSQL in Docker, a loader for that school, and a small API that records attendance.
 3. A Pandas quality report, and Redis for today's attendance.
+4. Redpanda, so each attendance mark is also published to a stream.
 
 Learner names in this project come from Faker. Do not replace them with real pupils, parents, or ID numbers.
 
@@ -69,7 +70,15 @@ curl http://127.0.0.1:8000/attendance/today
 curl "http://127.0.0.1:8000/attendance/today?student_id=1001"
 ```
 
-`POST /attendance` writes the row to PostgreSQL and the same mark to Redis.
+`POST /attendance` writes the row to PostgreSQL, stores today's mark in Redis, and publishes the event to Redpanda.
+
+Watch the stream in a second terminal:
+
+```bash
+python src/listen_attendance.py
+```
+
+Post an attendance mark, and that terminal prints the learner, class, and status.
 
 ## What to open first
 
@@ -81,10 +90,12 @@ curl "http://127.0.0.1:8000/attendance/today?student_id=1001"
 | `src/loader/load_events.py` | Checks the events and loads them into PostgreSQL. |
 | `src/quality/check_events.py` | Pandas pass or fail report for the generated events. |
 | `src/cache.py` | Stores today's attendance in Redis. |
-| `src/api.py` | Records one attendance mark and reads today's marks from Redis. |
-| `docker-compose.yml` | Starts local PostgreSQL and Redis. |
+| `src/stream.py` | Publishes one attendance event to the Redpanda topic. |
+| `src/listen_attendance.py` | Prints events as they arrive on that topic. |
+| `src/api.py` | Records a mark, caches today in Redis, and publishes the event. |
+| `docker-compose.yml` | Starts local PostgreSQL, Redis, and Redpanda. |
 | `docs/data-model.md` | How an event becomes rows, in plain language. |
 
 ## What is next
 
-Add Redpanda so the API publishes each attendance event, then the Spark job and the Airflow export.
+Add one Spark job for weekly attendance and grade distribution, then the Airflow export.

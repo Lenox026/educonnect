@@ -1,6 +1,7 @@
-# Local PostgreSQL and Redis for EduConnect.
+# Local PostgreSQL, Redis, and Redpanda for EduConnect.
 # The database password is for this laptop demo only.
 # Redis has no password. docker compose down clears today's attendance cache.
+# Redpanda is the stream. The API publishes to it on localhost:19092.
 # Start: docker compose up -d
 # Stop:  docker compose down
 # Wipe the database: docker compose down -v
@@ -34,5 +35,33 @@ services:
       timeout: 5s
       retries: 10
 
+  redpanda:
+    image: redpandadata/redpanda:v24.3.6
+    container_name: educonnect-redpanda
+    command:
+      - redpanda
+      - start
+      - --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr internal://redpanda:9092,external://localhost:19092
+      - --pandaproxy-addr internal://0.0.0.0:8082,external://0.0.0.0:18082
+      - --advertise-pandaproxy-addr internal://redpanda:8082,external://localhost:18082
+      - --schema-registry-addr internal://0.0.0.0:8081,external://0.0.0.0:18081
+      - --rpc-addr redpanda:33145
+      - --advertise-rpc-addr redpanda:33145
+      - --mode dev-container
+      - --smp 1
+      - --default-log-level=warn
+    ports:
+      - "19092:19092"
+    volumes:
+      - educonnect_redpanda:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD", "rpk", "cluster", "health"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
+
 volumes:
   educonnect_pg:
+  educonnect_redpanda:
