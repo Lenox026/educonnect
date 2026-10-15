@@ -8,7 +8,7 @@ The project currently has four slices you can run on a laptop:
 2. PostgreSQL in Docker, a loader for that school, and a small API that records attendance.
 3. A Pandas quality report, and Redis for today's attendance.
 4. Redpanda, so each attendance mark is also published to a stream.
-5. A Spark job for the weekly attendance rate of each class.
+5. Spark jobs for the weekly attendance rate of each class, and for grade distribution.
 
 Learner names in this project come from Faker. Do not replace them with real pupils, parents, or ID numbers.
 
@@ -91,6 +91,14 @@ python src/batch/weekly_attendance.py
 
 The script reads the generated events and writes `data/generated/weekly_attendance.json`. Present and late count as attended. Each row is one class for one week, and the week starts on Monday.
 
+## Grade distribution
+
+```bash
+python src/batch/grade_distribution.py
+```
+
+Each score becomes a percentage of that assignment's maximum. The report lists the average percentage per class, and how many grades fall into `0-49`, `50-59`, `60-69`, `70-79`, and `80-100`. The file is `data/generated/grade_distribution.json`.
+
 ## What to open first
 
 | File | Why it is there |
@@ -105,9 +113,10 @@ The script reads the generated events and writes `data/generated/weekly_attendan
 | `src/listen_attendance.py` | Prints events as they arrive on that topic. |
 | `src/api.py` | Records a mark, caches today in Redis, and publishes the event. |
 | `src/batch/weekly_attendance.py` | Spark job for the weekly attendance rate of each class. |
+| `src/batch/grade_distribution.py` | Spark job for the grade distribution of each class. |
 | `docker-compose.yml` | Starts local PostgreSQL, Redis, and Redpanda. |
 | `docs/data-model.md` | How an event becomes rows, in plain language. |
 
 ## What is next
 
-Add the Spark grade distribution, then the Airflow export.
+Add one Airflow job that writes the processed files into `raw-events/YYYY/MM/DD/`.
