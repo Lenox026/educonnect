@@ -107,6 +107,21 @@ python src/batch/export_lake.py
 
 This copies the raw events and both Spark reports into `data/lake/raw-events/YYYY/MM/DD/`. That is the same layout the project will later use at `s3://educonnect-data-lake/raw-events/YYYY/MM/DD/`. The folder is gitignored.
 
+## Nightly Airflow job
+
+Airflow is installed beside the main packages, because it has its own dependency list.
+
+```bash
+python -m pip install -r requirements-airflow.txt
+export AIRFLOW_HOME="$PWD/.airflow"
+export AIRFLOW__CORE__DAGS_FOLDER="$PWD/dags"
+export AIRFLOW__CORE__LOAD_EXAMPLES=false
+airflow db migrate
+airflow dags test educonnect_nightly 2026-10-15
+```
+
+The DAG `educonnect_nightly` runs four steps in order: the Pandas check, weekly attendance, grade distribution, then the date-folder export. It is scheduled for 02:00 every day. `dags test` runs that pipeline once, immediately, so you can show it without waiting until 02:00.
+
 ## What to open first
 
 | File | Why it is there |
@@ -123,9 +138,10 @@ This copies the raw events and both Spark reports into `data/lake/raw-events/YYY
 | `src/batch/weekly_attendance.py` | Spark job for the weekly attendance rate of each class. |
 | `src/batch/grade_distribution.py` | Spark job for the grade distribution of each class. |
 | `src/batch/export_lake.py` | Copies raw events and Spark reports into `raw-events/YYYY/MM/DD/`. |
+| `dags/educonnect_nightly.py` | Airflow DAG that runs the check, both Spark jobs, and the export. |
 | `docker-compose.yml` | Starts local PostgreSQL, Redis, and Redpanda. |
 | `docs/data-model.md` | How an event becomes rows, in plain language. |
 
 ## What is next
 
-Add an Airflow DAG that runs the quality check, both Spark jobs, and this export.
+Add the AWS slice: SAM, Lambda, API Gateway, DynamoDB, SNS, and S3.

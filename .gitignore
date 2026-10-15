@@ -12,3 +12,4 @@ data/lake/
 metastore_db/
 derby.log
 spark-warehouse/
+.airflow/
