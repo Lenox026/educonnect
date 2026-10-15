@@ -8,3 +8,6 @@ data/generated/
 .vscode/
 *.egg-info/
 .DS_Store
+metastore_db/
+derby.log
+spark-warehouse/

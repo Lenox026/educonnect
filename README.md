@@ -8,6 +8,7 @@ The project currently has four slices you can run on a laptop:
 2. PostgreSQL in Docker, a loader for that school, and a small API that records attendance.
 3. A Pandas quality report, and Redis for today's attendance.
 4. Redpanda, so each attendance mark is also published to a stream.
+5. A Spark job for the weekly attendance rate of each class.
 
 Learner names in this project come from Faker. Do not replace them with real pupils, parents, or ID numbers.
 
@@ -80,6 +81,16 @@ python src/listen_attendance.py
 
 Post an attendance mark, and that terminal prints the learner, class, and status.
 
+## Weekly attendance
+
+Spark runs on this laptop. It does not need a cluster. This job uses Spark 3.5, which needs Java 17. On this machine the script finds Java 17 by itself.
+
+```bash
+python src/batch/weekly_attendance.py
+```
+
+The script reads the generated events and writes `data/generated/weekly_attendance.json`. Present and late count as attended. Each row is one class for one week, and the week starts on Monday.
+
 ## What to open first
 
 | File | Why it is there |
@@ -93,9 +104,10 @@ Post an attendance mark, and that terminal prints the learner, class, and status
 | `src/stream.py` | Publishes one attendance event to the Redpanda topic. |
 | `src/listen_attendance.py` | Prints events as they arrive on that topic. |
 | `src/api.py` | Records a mark, caches today in Redis, and publishes the event. |
+| `src/batch/weekly_attendance.py` | Spark job for the weekly attendance rate of each class. |
 | `docker-compose.yml` | Starts local PostgreSQL, Redis, and Redpanda. |
 | `docs/data-model.md` | How an event becomes rows, in plain language. |
 
 ## What is next
 
-Add one Spark job for weekly attendance and grade distribution, then the Airflow export.
+Add the Spark grade distribution, then the Airflow export.
