@@ -99,6 +99,14 @@ python src/batch/grade_distribution.py
 
 Each score becomes a percentage of that assignment's maximum. The report lists the average percentage per class, and how many grades fall into `0-49`, `50-59`, `60-69`, `70-79`, and `80-100`. The file is `data/generated/grade_distribution.json`.
 
+## Date folders for the data lake
+
+```bash
+python src/batch/export_lake.py
+```
+
+This copies the raw events and both Spark reports into `data/lake/raw-events/YYYY/MM/DD/`. That is the same layout the project will later use at `s3://educonnect-data-lake/raw-events/YYYY/MM/DD/`. The folder is gitignored.
+
 ## What to open first
 
 | File | Why it is there |
@@ -114,9 +122,10 @@ Each score becomes a percentage of that assignment's maximum. The report lists t
 | `src/api.py` | Records a mark, caches today in Redis, and publishes the event. |
 | `src/batch/weekly_attendance.py` | Spark job for the weekly attendance rate of each class. |
 | `src/batch/grade_distribution.py` | Spark job for the grade distribution of each class. |
+| `src/batch/export_lake.py` | Copies raw events and Spark reports into `raw-events/YYYY/MM/DD/`. |
 | `docker-compose.yml` | Starts local PostgreSQL, Redis, and Redpanda. |
 | `docs/data-model.md` | How an event becomes rows, in plain language. |
 
 ## What is next
 
-Add one Airflow job that writes the processed files into `raw-events/YYYY/MM/DD/`.
+Add an Airflow DAG that runs the quality check, both Spark jobs, and this export.
