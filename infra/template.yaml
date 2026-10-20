@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
-Description: EduConnect attendance on API Gateway, Lambda, DynamoDB, and SNS.
+Description: EduConnect attendance on API Gateway, Lambda, DynamoDB, SNS, and a private S3 lake.
 
 Parameters:
   AlertEmail:
@@ -33,6 +33,16 @@ Resources:
       Subscription:
         - Protocol: email
           Endpoint: !Ref AlertEmail
+
+  DataLakeBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub educonnect-data-lake-${AWS::AccountId}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
 
   AttendanceLogGroup:
     Type: AWS::Logs::LogGroup
@@ -123,3 +133,6 @@ Outputs:
   AbsenceTopicArn:
     Description: SNS topic that emails an absence alert.
     Value: !Ref AbsenceTopic
+  DataLakeBucketName:
+    Description: Private bucket for raw-events/YYYY/MM/DD/.
+    Value: !Ref DataLakeBucket

@@ -126,7 +126,7 @@ The DAG `educonnect_nightly` runs four steps in order: the Pandas check, weekly 
 
 ## AWS attendance API
 
-This slice runs in an AWS account, not in Docker. The template creates a DynamoDB table, an SNS email topic, one Lambda, and an HTTP API. There is no EC2, RDS, NAT gateway, or SMS.
+This slice runs in an AWS account, not in Docker. The template creates a private S3 bucket, a DynamoDB table, an SNS email topic, one Lambda, and an HTTP API. There is no EC2, RDS, NAT gateway, or SMS.
 
 From the project root, with the AWS CLI and SAM CLI logged into the account you will use for the demo:
 
@@ -139,7 +139,9 @@ Use your own email. After the stack finishes, open the email from AWS and confir
 
 `POST /attendance` uses the same JSON as `data/samples/attendance_event.json`. The function writes the mark to DynamoDB. Status `absent` also sends one email. `GET /attendance/today` reads that table. The base URL is the `ApiUrl` output.
 
-Delete the stack after the demo:
+The S3 bucket is named `educonnect-data-lake-<account id>`. It stays private. Objects belong under `raw-events/YYYY/MM/DD/`, the same layout as `data/lake/` on the laptop.
+
+Delete the stack after the demo. Empty the bucket first if you uploaded files:
 
 ```bash
 sam delete --stack-name educonnect
@@ -162,11 +164,11 @@ sam delete --stack-name educonnect
 | `src/batch/grade_distribution.py` | Spark job for the grade distribution of each class. |
 | `src/batch/export_lake.py` | Copies raw events and Spark reports into `raw-events/YYYY/MM/DD/`. |
 | `dags/educonnect_nightly.py` | Airflow DAG that runs the check, both Spark jobs, and the export. |
-| `infra/template.yaml` | SAM template for API Gateway, Lambda, DynamoDB, SNS, and CloudWatch logs. |
+| `infra/template.yaml` | SAM template for API Gateway, Lambda, DynamoDB, SNS, S3, and CloudWatch logs. |
 | `src/aws/attendance_handler.py` | Lambda that stores a mark and emails an absence. |
 | `docker-compose.yml` | Starts local PostgreSQL, Redis, and Redpanda. |
 | `docs/data-model.md` | How an event becomes rows, in plain language. |
 
 ## What is next
 
-Add a private S3 bucket for `raw-events/YYYY/MM/DD/`, then Cognito, CloudFront, and a CloudWatch alarm.
+Add Cognito in front of the API, a one-page site on S3 and CloudFront, and a CloudWatch alarm.
