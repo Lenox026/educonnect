@@ -13,3 +13,4 @@ metastore_db/
 derby.log
 spark-warehouse/
 .airflow/
+.aws-sam/

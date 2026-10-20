@@ -2,13 +2,15 @@
 
 EduConnect is a small school-data platform for the cloud computing and data engineering capstone. It turns fake attendance and grade events into tables, checks, and later into batch jobs and a serverless notification.
 
-The project currently has four slices you can run on a laptop:
+The project currently has these slices:
 
 1. A database shape and a Python script that invents a school.
 2. PostgreSQL in Docker, a loader for that school, and a small API that records attendance.
 3. A Pandas quality report, and Redis for today's attendance.
 4. Redpanda, so each attendance mark is also published to a stream.
 5. Spark jobs for the weekly attendance rate of each class, and for grade distribution.
+6. An Airflow DAG that runs the check, both Spark jobs, and the date-folder export.
+7. An AWS attendance API, defined in SAM.
 
 Learner names in this project come from Faker. Do not replace them with real pupils, parents, or ID numbers.
 
@@ -122,6 +124,27 @@ airflow dags test educonnect_nightly 2026-10-15
 
 The DAG `educonnect_nightly` runs four steps in order: the Pandas check, weekly attendance, grade distribution, then the date-folder export. It is scheduled for 02:00 every day. `dags test` runs that pipeline once, immediately, so you can show it without waiting until 02:00.
 
+## AWS attendance API
+
+This slice runs in an AWS account, not in Docker. The template creates a DynamoDB table, an SNS email topic, one Lambda, and an HTTP API. There is no EC2, RDS, NAT gateway, or SMS.
+
+From the project root, with the AWS CLI and SAM CLI logged into the account you will use for the demo:
+
+```bash
+sam build --template infra/template.yaml
+sam deploy --guided --template infra/template.yaml --parameter-overrides AlertEmail=you@example.com
+```
+
+Use your own email. After the stack finishes, open the email from AWS and confirm the subscription. The region to choose in the guided deploy is `us-east-1` if the account does not offer Cape Town.
+
+`POST /attendance` uses the same JSON as `data/samples/attendance_event.json`. The function writes the mark to DynamoDB. Status `absent` also sends one email. `GET /attendance/today` reads that table. The base URL is the `ApiUrl` output.
+
+Delete the stack after the demo:
+
+```bash
+sam delete --stack-name educonnect
+```
+
 ## What to open first
 
 | File | Why it is there |
@@ -139,9 +162,11 @@ The DAG `educonnect_nightly` runs four steps in order: the Pandas check, weekly 
 | `src/batch/grade_distribution.py` | Spark job for the grade distribution of each class. |
 | `src/batch/export_lake.py` | Copies raw events and Spark reports into `raw-events/YYYY/MM/DD/`. |
 | `dags/educonnect_nightly.py` | Airflow DAG that runs the check, both Spark jobs, and the export. |
+| `infra/template.yaml` | SAM template for API Gateway, Lambda, DynamoDB, SNS, and CloudWatch logs. |
+| `src/aws/attendance_handler.py` | Lambda that stores a mark and emails an absence. |
 | `docker-compose.yml` | Starts local PostgreSQL, Redis, and Redpanda. |
 | `docs/data-model.md` | How an event becomes rows, in plain language. |
 
 ## What is next
 
-Add the AWS slice: SAM, Lambda, API Gateway, DynamoDB, SNS, and S3.
+Add a private S3 bucket for `raw-events/YYYY/MM/DD/`, then Cognito, CloudFront, and a CloudWatch alarm.
