@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
-Description: DynamoDB table and SNS email topic for EduConnect attendance.
+Description: EduConnect attendance on API Gateway, Lambda, DynamoDB, and SNS.
 
 Parameters:
   AlertEmail:
@@ -34,7 +34,89 @@ Resources:
         - Protocol: email
           Endpoint: !Ref AlertEmail
 
+  AttendanceLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/educonnect-attendance
+      RetentionInDays: 14
+
+  AttendanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: educonnect-attendance
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:Query
+                Resource: !GetAtt AttendanceTable.Arn
+              - Effect: Allow
+                Action: sns:Publish
+                Resource: !Ref AbsenceTopic
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub ${AttendanceLogGroup.Arn}:*
+
+  AttendanceFunction:
+    Type: AWS::Serverless::Function
+    DependsOn: AttendanceLogGroup
+    Properties:
+      FunctionName: educonnect-attendance
+      CodeUri: ../src/aws/
+      Handler: attendance_handler.handler
+      Runtime: python3.12
+      Timeout: 10
+      MemorySize: 128
+      Role: !GetAtt AttendanceRole.Arn
+      Description: Save one attendance mark and email the topic when a learner is absent.
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref AttendanceTable
+          TOPIC_ARN: !Ref AbsenceTopic
+      Events:
+        PostAttendance:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref AttendanceApi
+            Path: /attendance
+            Method: POST
+        GetToday:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref AttendanceApi
+            Path: /attendance/today
+            Method: GET
+
+  AttendanceApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: prod
+      CorsConfiguration:
+        AllowOrigins:
+          - "*"
+        AllowMethods:
+          - GET
+          - POST
+        AllowHeaders:
+          - content-type
+          - authorization
+
 Outputs:
+  ApiUrl:
+    Description: Base URL. POST /attendance and GET /attendance/today.
+    Value: !GetAtt AttendanceApi.ApiEndpoint
   AttendanceTableName:
     Description: DynamoDB table for one day's marks.
     Value: !Ref AttendanceTable
