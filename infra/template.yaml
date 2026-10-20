@@ -1,0 +1,43 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: DynamoDB table and SNS email topic for EduConnect attendance.
+
+Parameters:
+  AlertEmail:
+    Type: String
+    Description: Email that receives an absence alert. Confirm the SNS email after deploy. Do not use SMS.
+    AllowedPattern: ".+@.+"
+    ConstraintDescription: Use an email address. This stack does not send SMS.
+
+Resources:
+  AttendanceTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: educonnect-attendance
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: attendance_date
+          AttributeType: S
+        - AttributeName: student_class
+          AttributeType: S
+      KeySchema:
+        - AttributeName: attendance_date
+          KeyType: HASH
+        - AttributeName: student_class
+          KeyType: RANGE
+
+  AbsenceTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: educonnect-absence
+      Subscription:
+        - Protocol: email
+          Endpoint: !Ref AlertEmail
+
+Outputs:
+  AttendanceTableName:
+    Description: DynamoDB table for one day's marks.
+    Value: !Ref AttendanceTable
+  AbsenceTopicArn:
+    Description: SNS topic that emails an absence alert.
+    Value: !Ref AbsenceTopic
