@@ -124,6 +124,14 @@ airflow dags test educonnect_nightly 2026-10-15
 
 The DAG `educonnect_nightly` runs four steps in order: the Pandas check, weekly attendance, grade distribution, then the date-folder export. It is scheduled for 02:00 every day. `dags test` runs that pipeline once, immediately, so you can show it without waiting until 02:00.
 
+## Run the tests
+
+The tests use the project virtualenv. They do not need PostgreSQL, Redis, or AWS.
+
+```bash
+.venv/bin/python -m unittest discover -s tests -v
+```
+
 ## AWS attendance API
 
 This slice runs in an AWS account, not in Docker. The template creates a private S3 bucket, a DynamoDB table, an SNS email topic, one Lambda, and an HTTP API. There is no EC2, RDS, NAT gateway, or SMS.
