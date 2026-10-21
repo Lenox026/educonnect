@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>EduConnect attendance</title>
+  <style>
+    body { font-family: sans-serif; margin: 2rem auto; max-width: 36rem; line-height: 1.4; }
+    label { display: block; margin-top: 0.8rem; }
+    input { width: 100%; padding: 0.4rem; }
+    button { margin-top: 1rem; }
+    #message { margin-top: 1rem; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h1>EduConnect</h1>
+  <p>Sign in to read today's attendance. Names in this project are fake.</p>
+  <form id="login">
+    <label>Email <input id="email" type="email" autocomplete="username" required></label>
+    <label>Password <input id="password" type="password" autocomplete="current-password" required></label>
+    <label>Learner id <input id="student" type="number" value="1001" min="1" required></label>
+    <button type="submit">Show today's marks</button>
+  </form>
+  <p id="message"></p>
+  <script>
+    // Fill these four values from the stack outputs after sam deploy.
+    const settings = {
+      region: "us-east-1",
+      userPoolId: "USER_POOL_ID",
+      clientId: "CLIENT_ID",
+      apiUrl: "API_URL"
+    };
+
+    document.getElementById("login").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const message = document.getElementById("message");
+      message.textContent = "Signing in...";
+      try {
+        const token = await signIn(
+          document.getElementById("email").value,
+          document.getElementById("password").value
+        );
+        const studentId = document.getElementById("student").value;
+        const response = await fetch(
+          settings.apiUrl.replace(/\/$/, "") + "/attendance/today?student_id=" + studentId,
+          { headers: { Authorization: "Bearer " + token } }
+        );
+        const body = await response.json();
+        if (!response.ok) {
+          message.textContent = body.detail || body.message || "The API refused the request.";
+          return;
+        }
+        if (!body.marks.length) {
+          message.textContent = "No marks for learner " + studentId + " on " + body.attendance_date + ".";
+          return;
+        }
+        message.textContent = body.marks
+          .map((mark) => "Learner " + mark.student_id + " class " + mark.class_id + ": " + mark.status)
+          .join("\n");
+      } catch (error) {
+        message.textContent = error.message;
+      }
+    });
+
+    async function signIn(email, password) {
+      const response = await fetch("https://cognito-idp." + settings.region + ".amazonaws.com/", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-amz-json-1.1",
+          "X-Amz-Target": "AWSCognitoIdentityProviderService.InitiateAuth"
+        },
+        body: JSON.stringify({
+          AuthFlow: "USER_PASSWORD_AUTH",
+          ClientId: settings.clientId,
+          AuthParameters: { USERNAME: email, PASSWORD: password }
+        })
+      });
+      const body = await response.json();
+      if (!response.ok || !body.AuthenticationResult) {
+        throw new Error(body.message || "Sign-in failed.");
+      }
+      return body.AuthenticationResult.IdToken;
+    }
+  </script>
+</body>
+</html>
