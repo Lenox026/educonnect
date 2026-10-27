@@ -22,7 +22,7 @@ CREATE TABLE teachers (
 
 -- Who learns. grade_level is a property of the learner, so it stays on this table.
 CREATE TABLE students (
-    student_id   INTEGER PRIMARY KEY,
+    student_id   INTEGER PRIMARY KEY,342
     first_name   TEXT NOT NULL,
     last_name    TEXT NOT NULL,
     grade_level  INTEGER NOT NULL CHECK (grade_level BETWEEN 8 AND 12)

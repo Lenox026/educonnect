@@ -196,3 +196,8 @@ sam delete --stack-name educonnect
 ## What is next
 
 Debezium, dbt, and ECS stay unfinished. Say that in the demo. The local pipeline and this AWS stack are the parts that run.
+
+
+verification code:
+
+WTC-V5HJ3S7B
