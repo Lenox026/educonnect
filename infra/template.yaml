@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
-Description: EduConnect attendance API, Cognito login, CloudFront page, and a Lambda error alarm.
+Description: EduConnect attendance and announcements API, Cognito login with roles, CloudFront page, and a Lambda error alarm.
 
 Parameters:
   AlertEmail:
@@ -152,6 +152,83 @@ Resources:
       GroupName: parent
       UserPoolId: !Ref UserPool
 
+  AnnouncementsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: educonnect-announcements
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: school_id
+          AttributeType: S
+        - AttributeName: sort_key
+          AttributeType: S
+      KeySchema:
+        - AttributeName: school_id
+          KeyType: HASH
+        - AttributeName: sort_key
+          KeyType: RANGE
+
+  AnnouncementsLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/educonnect-announcements
+      RetentionInDays: 14
+
+  AnnouncementsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: educonnect-announcements
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:Query
+                Resource: !GetAtt AnnouncementsTable.Arn
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub ${AnnouncementsLogGroup.Arn}:*
+
+  AnnouncementsFunction:
+    Type: AWS::Serverless::Function
+    DependsOn: AnnouncementsLogGroup
+    Properties:
+      FunctionName: educonnect-announcements
+      CodeUri: ../src/aws/
+      Handler: announcements_handler.handler
+      Runtime: python3.12
+      Timeout: 10
+      MemorySize: 128
+      Role: !GetAtt AnnouncementsRole.Arn
+      Description: Teachers post whole-school announcements and every role reads them.
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref AnnouncementsTable
+      Events:
+        PostAnnouncement:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref AttendanceApi
+            Path: /announcements
+            Method: POST
+        ListAnnouncements:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref AttendanceApi
+            Path: /announcements
+            Method: GET
+
   AttendanceApi:
     Type: AWS::Serverless::HttpApi
     Properties:
@@ -256,11 +333,14 @@ Resources:
 
 Outputs:
   ApiUrl:
-    Description: Base URL. POST /attendance and GET /attendance/today.
+    Description: Base URL. POST /attendance, GET /attendance/today, POST and GET /announcements.
     Value: !GetAtt AttendanceApi.ApiEndpoint
   AttendanceTableName:
     Description: DynamoDB table for one day's marks.
     Value: !Ref AttendanceTable
+  AnnouncementsTableName:
+    Description: DynamoDB table for whole-school announcements.
+    Value: !Ref AnnouncementsTable
   AbsenceTopicArn:
     Description: SNS topic that emails an absence alert.
     Value: !Ref AbsenceTopic

@@ -10,8 +10,7 @@ from pathlib import Path
 os.environ.setdefault("TABLE_NAME", "educonnect-attendance")
 os.environ.setdefault("TOPIC_ARN", "arn:aws:sns:us-east-1:123456789012:educonnect-absence")
 
-boto3 = types.ModuleType("boto3")
-sys.modules.setdefault("boto3", boto3)
+boto3 = sys.modules.setdefault("boto3", types.ModuleType("boto3"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src" / "aws"))
 
 import attendance_handler as handler
