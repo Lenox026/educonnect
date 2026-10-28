@@ -19,12 +19,25 @@ SCHOOL_ZONE = ZoneInfo("Africa/Johannesburg")
 STATUSES = ("present", "absent", "late")
 
 
+def groups(event):
+    claims = (
+        event.get("requestContext", {})
+        .get("authorizer", {})
+        .get("jwt", {})
+        .get("claims", {})
+    )
+    raw = str(claims.get("cognito:groups", "")).strip("[]")
+    return set(raw.replace(",", " ").split())
+
+
 def handler(event, context):
     route = event.get("requestContext", {}).get("http", {})
     method = route.get("method", "")
     path = route.get("path", "")
 
     if method == "POST" and path == "/attendance":
+        if not groups(event) & {"teacher", "admin"}:
+            return respond(403, {"detail": "Teachers only."})
         return save_mark(event)
     if method == "GET" and path == "/attendance/today":
         return list_today(event)

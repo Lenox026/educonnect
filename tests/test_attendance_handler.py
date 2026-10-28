@@ -49,10 +49,14 @@ class HandlerTests(unittest.TestCase):
         boto3.resource = lambda name: types.SimpleNamespace(Table=lambda table: FakeTable(self.store))
         boto3.client = lambda name: self.sns
 
-    def post(self, body):
+    def post(self, body, groups="[teacher]"):
+        claims = {"cognito:groups": groups} if groups else {}
         result = handler.handler(
             {
-                "requestContext": {"http": {"method": "POST", "path": "/attendance"}},
+                "requestContext": {
+                    "http": {"method": "POST", "path": "/attendance"},
+                    "authorizer": {"jwt": {"claims": claims}},
+                },
                 "body": json.dumps(body),
             },
             None,
@@ -131,6 +135,57 @@ class HandlerTests(unittest.TestCase):
         self.assertEqual(result["statusCode"], 200)
         self.assertEqual([mark["student_id"] for mark in body["marks"]], [1001])
         self.assertEqual(body["source"], "dynamodb")
+
+    def test_parent_cannot_post(self):
+        status, body = self.post(
+            {
+                "student_id": 1001,
+                "class_id": 10,
+                "attendance_date": "2026-10-21",
+                "status": "absent",
+            },
+            groups="[parent]",
+        )
+        self.assertEqual(status, 403)
+        self.assertEqual(self.store, {})
+        self.assertEqual(self.sns.messages, [])
+
+    def test_no_group_cannot_post(self):
+        status, body = self.post(
+            {
+                "student_id": 1001,
+                "class_id": 10,
+                "attendance_date": "2026-10-21",
+                "status": "absent",
+            },
+            groups="",
+        )
+        self.assertEqual(status, 403)
+        self.assertEqual(self.store, {})
+
+    def test_admin_can_post(self):
+        status, body = self.post(
+            {
+                "student_id": 1003,
+                "class_id": 10,
+                "attendance_date": "2026-10-21",
+                "status": "present",
+            },
+            groups="[admin]",
+        )
+        self.assertEqual(status, 200)
+
+    def test_teacher_among_several_groups_can_post(self):
+        status, body = self.post(
+            {
+                "student_id": 1004,
+                "class_id": 10,
+                "attendance_date": "2026-10-21",
+                "status": "present",
+            },
+            groups="[parent teacher]",
+        )
+        self.assertEqual(status, 200)
 
 
 if __name__ == "__main__":

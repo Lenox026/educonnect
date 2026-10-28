@@ -134,6 +134,24 @@ Resources:
         - ALLOW_REFRESH_TOKEN_AUTH
       PreventUserExistenceErrors: ENABLED
 
+  AdminGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      GroupName: admin
+      UserPoolId: !Ref UserPool
+
+  TeacherGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      GroupName: teacher
+      UserPoolId: !Ref UserPool
+
+  ParentGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      GroupName: parent
+      UserPoolId: !Ref UserPool
+
   AttendanceApi:
     Type: AWS::Serverless::HttpApi
     Properties:
