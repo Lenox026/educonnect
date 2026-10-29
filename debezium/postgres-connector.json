@@ -1,0 +1,23 @@
+{
+  "name": "educonnect-attendance",
+  "config": {
+    "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+    "plugin.name": "pgoutput",
+    "database.hostname": "postgres",
+    "database.port": "5432",
+    "database.user": "educonnect",
+    "database.password": "educonnect",
+    "database.dbname": "educonnect",
+    "topic.prefix": "educonnect",
+    "table.include.list": "public.attendance,public.grades",
+    "slot.name": "educonnect_slot",
+    "publication.name": "educonnect_publication",
+    "publication.autocreate.mode": "filtered",
+    "topic.creation.default.replication.factor": "1",
+    "topic.creation.default.partitions": "1",
+    "key.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "key.converter.schemas.enable": "false",
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter.schemas.enable": "false"
+  }
+}

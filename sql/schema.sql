@@ -22,7 +22,7 @@ CREATE TABLE teachers (
 
 -- Who learns. grade_level is a property of the learner, so it stays on this table.
 CREATE TABLE students (
-    student_id   INTEGER PRIMARY KEY,342
+    student_id   INTEGER PRIMARY KEY,
     first_name   TEXT NOT NULL,
     last_name    TEXT NOT NULL,
     grade_level  INTEGER NOT NULL CHECK (grade_level BETWEEN 8 AND 12)
@@ -67,6 +67,10 @@ CREATE TABLE attendance (
     recorded_at      TIMESTAMPTZ NOT NULL,
     UNIQUE (student_id, class_id, attendance_date)
 );
+
+-- Debezium reads this table's changes. FULL means an UPDATE or DELETE carries the
+-- whole old row, so a stream job can see that a mark changed from absent to present.
+ALTER TABLE attendance REPLICA IDENTITY FULL;
 
 -- One score per learner per assignment.
 -- score >= 0 is checked here. score <= assignments.max_score is checked

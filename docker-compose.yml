@@ -2,6 +2,10 @@
 # The database password is for this laptop demo only.
 # Redis has no password. docker compose down clears today's attendance cache.
 # Redpanda is the stream. The API publishes to it on localhost:19092.
+# Debezium (Kafka Connect, port 8083) copies PostgreSQL changes onto Redpanda.
+# It needs wal_level=logical, which the postgres service sets below.
+# The sftp service is a fake school-office server on localhost:2222. Its upload
+# folder is data/sftp on this machine. User and password are for this demo only.
 # Start: docker compose up -d
 # Stop:  docker compose down
 # Wipe the database: docker compose down -v
@@ -10,6 +14,7 @@ services:
   postgres:
     image: postgres:16
     container_name: educonnect-postgres
+    command: ["postgres", "-c", "wal_level=logical"]
     environment:
       POSTGRES_USER: educonnect
       POSTGRES_PASSWORD: educonnect
@@ -61,6 +66,35 @@ services:
       timeout: 10s
       retries: 12
       start_period: 20s
+
+  connect:
+    image: quay.io/debezium/connect:2.7
+    container_name: educonnect-connect
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+    environment:
+      BOOTSTRAP_SERVERS: redpanda:9092
+      GROUP_ID: educonnect-connect
+      CONFIG_STORAGE_TOPIC: connect_configs
+      OFFSET_STORAGE_TOPIC: connect_offsets
+      STATUS_STORAGE_TOPIC: connect_statuses
+      CONFIG_STORAGE_REPLICATION_FACTOR: "1"
+      OFFSET_STORAGE_REPLICATION_FACTOR: "1"
+      STATUS_STORAGE_REPLICATION_FACTOR: "1"
+    ports:
+      - "8083:8083"
+
+  sftp:
+    image: atmoz/sftp
+    container_name: educonnect-sftp
+    command: educonnect:educonnect:::upload
+    ports:
+      - "2222:22"
+    volumes:
+      - ./data/sftp:/home/educonnect/upload
 
 volumes:
   educonnect_pg:

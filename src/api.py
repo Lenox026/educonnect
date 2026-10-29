@@ -9,6 +9,8 @@ Open http://127.0.0.1:8000/docs to try the routes in the browser.
 The body of POST /attendance matches data/samples/attendance_event.json.
 GET /attendance/today reads Redis, not PostgreSQL.
 POST /attendance also publishes the event to Redpanda.
+GET /reports/... serves the Spark reports from the newest data-lake date folder.
+GET /classes/absences serves the running absence counts the stream job keeps in Redis.
 """
 
 from datetime import date, datetime
@@ -20,14 +22,15 @@ from fastapi import FastAPI, HTTPException
 from kafka.errors import KafkaError
 from pydantic import BaseModel
 
-from cache import list_marks, save_mark, school_today
+from cache import list_absences, list_marks, save_mark, school_today
 from database import connect
+from reports import REPORTS, only_class, read_report
 from stream import publish_attendance
 
 app = FastAPI(
     title="EduConnect",
     description="Record a fake attendance mark, cache today in Redis, and publish the event to Redpanda.",
-    version="0.4.0",
+    version="0.5.0",
 )
 
 
@@ -122,6 +125,39 @@ def attendance_today(student_id: int | None = None):
         "attendance_date": day.isoformat(),
         "source": "redis",
         "marks": marks,
+    }
+
+
+@app.get("/reports/{name}")
+def get_report(name: str, class_id: int | None = None):
+    """Serve a batch report: weekly-attendance or grade-distribution. Add class_id to keep one class."""
+    if name not in REPORTS:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Unknown report. Choose one of: {', '.join(sorted(REPORTS))}.",
+        )
+    try:
+        report, origin = read_report(name)
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=404,
+            detail="No report yet. Run the Spark jobs and python src/batch/export_lake.py first.",
+        )
+    return {"report": name, "source": origin, "data": only_class(report, class_id)}
+
+
+@app.get("/classes/absences")
+def class_absences(attendance_date: date | None = None):
+    """Absences per class from the Debezium stream job. Defaults to today."""
+    day = attendance_date or school_today()
+    try:
+        rows = list_absences(day)
+    except redis.RedisError:
+        raise HTTPException(status_code=503, detail="Redis is not running.")
+    return {
+        "attendance_date": day.isoformat(),
+        "source": "redis, kept up to date from the Debezium change stream",
+        "classes": rows,
     }
 
 

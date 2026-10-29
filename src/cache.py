@@ -81,3 +81,15 @@ def list_marks(day: date, student_id: int | None = None) -> list[dict]:
         )
     marks.sort(key=lambda mark: (mark["student_id"], mark["class_id"]))
     return marks
+
+
+def list_absences(day: date) -> list[dict]:
+    """Absences per class for one day, written by src/streaming/absence_counter.py."""
+    raw = redis_client().hgetall(f"absences:{day.isoformat()}")
+    rows = [
+        {"class_id": int(class_id), "absences": int(count)}
+        for class_id, count in raw.items()
+        if int(count) > 0
+    ]
+    rows.sort(key=lambda row: row["class_id"])
+    return rows

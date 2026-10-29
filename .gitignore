@@ -14,3 +14,7 @@ derby.log
 spark-warehouse/
 .airflow/
 .aws-sam/
+data/sftp/
+dbt/target/
+dbt/logs/
+dbt/dbt_packages/

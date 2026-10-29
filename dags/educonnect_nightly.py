@@ -6,10 +6,13 @@ Order:
 2. Build the weekly attendance report.
 3. Build the grade distribution.
 4. Copy those files into raw-events/YYYY/MM/DD/.
+5. Optional: upload that folder to the S3 data lake. This step only exists when
+   EDUCONNECT_UPLOAD_TO_S3=1 is set, so the DAG still runs with no AWS login.
 
 The DAG uses the project virtualenv, because that environment has Spark.
 """
 
+import os
 from datetime import datetime
 from pathlib import Path
 
@@ -48,3 +51,11 @@ with DAG(
     )
 
     check_events >> weekly_attendance >> grade_distribution >> export_lake
+
+    if os.environ.get("EDUCONNECT_UPLOAD_TO_S3") == "1":
+        upload_lake = BashOperator(
+            task_id="upload_lake",
+            bash_command=f'"{PYTHON}" src/batch/upload_lake.py',
+            cwd=str(ROOT),
+        )
+        export_lake >> upload_lake

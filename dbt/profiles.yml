@@ -1,0 +1,14 @@
+# Local PostgreSQL from docker-compose.yml. These are demo credentials only.
+# Run dbt from the project root with:  dbt build --project-dir dbt --profiles-dir dbt
+educonnect:
+  target: local
+  outputs:
+    local:
+      type: postgres
+      host: localhost
+      port: 5432
+      user: educonnect
+      password: educonnect
+      dbname: educonnect
+      schema: analytics
+      threads: 2

@@ -1,0 +1,70 @@
+version: 2
+
+sources:
+  - name: educonnect
+    description: The tables src/loader/load_events.py writes. All rows are fake.
+    schema: public
+    tables:
+      - name: students
+        columns:
+          - name: student_id
+            data_tests: [unique, not_null]
+          - name: grade_level
+            data_tests: [not_null]
+      - name: classes
+        columns:
+          - name: class_id
+            data_tests: [unique, not_null]
+          - name: teacher_id
+            data_tests:
+              - not_null
+              - relationships:
+                  to: source('educonnect', 'teachers')
+                  field: teacher_id
+      - name: teachers
+        columns:
+          - name: teacher_id
+            data_tests: [unique, not_null]
+      - name: assignments
+        columns:
+          - name: assignment_id
+            data_tests: [unique, not_null]
+          - name: max_score
+            data_tests: [not_null]
+      - name: attendance
+        columns:
+          - name: attendance_id
+            data_tests: [unique, not_null]
+          - name: student_id
+            data_tests:
+              - not_null
+              - relationships:
+                  to: source('educonnect', 'students')
+                  field: student_id
+          - name: class_id
+            data_tests:
+              - not_null
+              - relationships:
+                  to: source('educonnect', 'classes')
+                  field: class_id
+          - name: status
+            data_tests:
+              - not_null
+              - accepted_values:
+                  values: ["present", "absent", "late"]
+      - name: grades
+        columns:
+          - name: grade_id
+            data_tests: [unique, not_null]
+          - name: student_id
+            data_tests:
+              - not_null
+              - relationships:
+                  to: source('educonnect', 'students')
+                  field: student_id
+          - name: assignment_id
+            data_tests:
+              - not_null
+              - relationships:
+                  to: source('educonnect', 'assignments')
+                  field: assignment_id

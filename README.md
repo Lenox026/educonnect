@@ -11,6 +11,11 @@ The project currently has these slices:
 5. Spark jobs for the weekly attendance rate of each class, and for grade distribution.
 6. An Airflow DAG that runs the check, both Spark jobs, and the date-folder export.
 7. An AWS attendance API, defined in SAM.
+8. An upload of the date folder to the S3 data lake.
+9. Debezium, which copies every PostgreSQL change onto Redpanda, and a stream job that counts absences per class.
+10. A second source: a CSV of re-marked grades that arrives on an SFTP server.
+11. dbt models and tests over PostgreSQL.
+12. API routes that serve the Spark reports and the live absence counts.
 
 Learner names in this project come from Faker. Do not replace them with real pupils, parents, or ID numbers.
 
@@ -124,6 +129,85 @@ airflow dags test educonnect_nightly 2026-10-15
 
 The DAG `educonnect_nightly` runs four steps in order: the Pandas check, weekly attendance, grade distribution, then the date-folder export. It is scheduled for 02:00 every day. `dags test` runs that pipeline once, immediately, so you can show it without waiting until 02:00.
 
+## Upload the date folder to S3
+
+After `export_lake.py` has written today's folder, and with the AWS CLI signed in to the account that holds the stack:
+
+```bash
+python -m pip install -r requirements.txt
+python src/batch/upload_lake.py
+```
+
+The script finds your account id and copies `data/lake/raw-events/YYYY/MM/DD/` to the same path in `educonnect-data-lake-<account id>`. Pass `--bucket` or `--day 2026-10-15` to change either. To make Airflow do it as a fifth task, set `EDUCONNECT_UPLOAD_TO_S3=1` before you start Airflow. Without that variable the DAG has four tasks and needs no AWS login.
+
+## Change data capture with Debezium
+
+Debezium reads the PostgreSQL write-ahead log and publishes every insert, update, and delete on `attendance` and `grades` to Redpanda. The topics are `educonnect.public.attendance` and `educonnect.public.grades`. PostgreSQL runs with `wal_level=logical`, and `sql/schema.sql` sets `REPLICA IDENTITY FULL` on `attendance` so an update carries the old row too.
+
+Order matters, because the loader drops and recreates the tables:
+
+```bash
+docker compose up -d
+python src/generator/produce_events.py
+python src/loader/load_events.py
+python src/streaming/register_connector.py
+python src/streaming/register_connector.py --status
+```
+
+Kafka Connect needs about a minute to start. After the connector registers, Debezium first sends every existing row (operation `r`), then each new change. If you run the loader again, use `python src/streaming/register_connector.py --reset` afterwards. If the connector still complains, `docker compose down -v` wipes everything and you can start again.
+
+Look at the stream in the Redpanda container:
+
+```bash
+docker exec -it educonnect-redpanda rpk topic consume educonnect.public.attendance -n 3
+```
+
+`POST /attendance` still publishes to the `attendance` topic itself. That is a second path for the same fact, kept so `listen_attendance.py` keeps working. The change stream is the one that stays correct when a mark is edited.
+
+## Count absences from the stream
+
+```bash
+python src/streaming/absence_counter.py
+```
+
+The job reads `educonnect.public.attendance` and keeps a running count of absences per class and day in Redis. Marking a learner absent adds one. Correcting that mark to present takes it away again, because the update carries the old row. Read the counts from the API:
+
+```bash
+curl "http://127.0.0.1:8000/classes/absences?attendance_date=2026-10-12"
+```
+
+## A second source: grades on SFTP
+
+`docker compose up -d` also starts a small SFTP server on `localhost:2222`. Its upload folder is `data/sftp` on this machine. The user and password are both `educonnect`, for this demo only.
+
+```bash
+python -m pip install -r requirements.txt
+python src/ingest/make_sample_upload.py
+python src/ingest/sftp_grades.py
+```
+
+The first script writes `data/sftp/grades_upload.csv`, which re-marks eight generated grades. The second downloads every CSV from the server, checks the rows, and upserts them into `grades`. A score above its assignment's maximum fails the whole file, and nothing loads. Try that with `make_sample_upload.py --bad`. If Debezium is running, the corrected scores appear on `educonnect.public.grades`.
+
+## dbt models and tests
+
+dbt runs against the local PostgreSQL and writes to a schema called `analytics`. It has its own dependency list.
+
+```bash
+python -m pip install -r requirements-dbt.txt
+dbt build --project-dir dbt --profiles-dir dbt
+```
+
+`stg_attendance` and `stg_grades` clean the tables. Three marts give the same answers as the Spark jobs: `attendance_weekly_by_class`, `grade_averages_by_class`, and `grade_bands_by_class`. The source tests check keys, relationships, and the allowed attendance statuses. Two extra tests in `dbt/tests/` check that an attendance rate stays between 0 and 1 and that no score is above its maximum.
+
+## Serve the reports from the API
+
+```bash
+curl http://127.0.0.1:8000/reports/weekly-attendance
+curl "http://127.0.0.1:8000/reports/grade-distribution?class_id=10"
+```
+
+The API reads the newest folder under `data/lake/raw-events/`, which is the folder Airflow just exported. The answer says which folder it came from. Before any lake folder exists it reads `data/generated/` instead.
+
 ## Run the tests
 
 The tests use the project virtualenv. They do not need PostgreSQL, Redis, or AWS.
@@ -143,7 +227,7 @@ sam build --template infra/template.yaml
 sam deploy --guided --template infra/template.yaml --parameter-overrides AlertEmail=you@example.com
 ```
 
-Use your own email. After the stack finishes, open the email from AWS and confirm the subscription. The region to choose in the guided deploy is `us-east-1` if the account does not offer Cape Town.
+Use your own email. After the stack finishes, open the email from AWS and confirm the subscription. The stack in this project is deployed in `eu-north-1` (Stockholm). Choose the region your account offers and use the same one for every `aws` command.
 
 `POST /attendance` uses the same JSON as `data/samples/attendance_event.json`. The function writes the mark to DynamoDB. Status `absent` also sends one email. `GET /attendance/today` reads that table. Both routes require a Cognito id token. The base URL is the `ApiUrl` output.
 
@@ -192,10 +276,17 @@ sam delete --stack-name educonnect
 | `web/index.html` | One page that signs in with Cognito and reads today's marks. |
 | `docker-compose.yml` | Starts local PostgreSQL, Redis, and Redpanda. |
 | `docs/data-model.md` | How an event becomes rows, in plain language. |
+| `src/batch/upload_lake.py` | Copies the date folder to the S3 data lake. |
+| `debezium/postgres-connector.json` | Tells Debezium which tables to stream. |
+| `src/streaming/register_connector.py` | Registers that connector with Kafka Connect. |
+| `src/streaming/absence_counter.py` | Counts absences per class from the change stream. |
+| `src/ingest/sftp_grades.py` | Reads re-marked grades from the SFTP server and loads them. |
+| `dbt/` | dbt staging models, marts, and tests over PostgreSQL. |
+| `src/reports.py` | Finds the newest lake folder so the API can serve the reports. |
 
 ## What is next
 
-Debezium, dbt, and ECS stay unfinished. Say that in the demo. The local pipeline and this AWS stack are the parts that run.
+ECS stays unfinished. Lambda already runs the cloud compute, so it is left out on purpose. Grades are not in the AWS API yet; only attendance and announcements are. Say both in the demo. The local pipeline and this AWS stack are the parts that run.
 
 
 verification code:

@@ -1,0 +1,16 @@
+name: educonnect
+version: "1.0.0"
+config-version: 2
+profile: educonnect
+
+model-paths: ["models"]
+test-paths: ["tests"]
+
+models:
+  educonnect:
+    staging:
+      # Tables, not views. A view would depend on the public tables and stop
+      # src/loader/load_events.py from dropping them when it rebuilds the school.
+      +materialized: table
+    marts:
+      +materialized: table
