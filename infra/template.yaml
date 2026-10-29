@@ -244,7 +244,7 @@ Resources:
                 - !Ref UserPoolClient
       CorsConfiguration:
         AllowOrigins:
-          - "*"
+          - !Sub https://${WebDistribution.DomainName}
         AllowMethods:
           - GET
           - POST
@@ -262,6 +262,25 @@ Resources:
       Dimensions:
         - Name: FunctionName
           Value: !Ref AttendanceFunction
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AbsenceTopic
+
+  AnnouncementsErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: educonnect-announcements-errors
+      AlarmDescription: Email the absence topic when the announcements Lambda reports an error.
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref AnnouncementsFunction
       Statistic: Sum
       Period: 300
       EvaluationPeriods: 1

@@ -10,7 +10,7 @@ The project currently has these slices:
 4. Redpanda, so each attendance mark is also published to a stream.
 5. Spark jobs for the weekly attendance rate of each class, and for grade distribution.
 6. An Airflow DAG that runs the check, both Spark jobs, and the date-folder export.
-7. An AWS attendance API, defined in SAM.
+7. An AWS API for attendance and announcements, defined in SAM, with Cognito login and roles.
 8. An upload of the date folder to the S3 data lake.
 9. Debezium, which copies every PostgreSQL change onto Redpanda, and a stream job that counts absences per class.
 10. A second source: a CSV of re-marked grades that arrives on an SFTP server.
@@ -216,42 +216,68 @@ The tests use the project virtualenv. They do not need PostgreSQL, Redis, or AWS
 .venv/bin/python -m unittest discover -s tests -v
 ```
 
-## AWS attendance API
+## AWS API: attendance and announcements
 
-This slice runs in an AWS account, not in Docker. The template creates a private S3 bucket, a DynamoDB table, an SNS email topic, one Lambda, an HTTP API, a Cognito login, a CloudFront page, and a CloudWatch alarm. There is no EC2, RDS, NAT gateway, or SMS.
+This slice runs in an AWS account, not in Docker. The template creates two private S3 buckets, two DynamoDB tables (attendance and announcements), an SNS email topic, two Lambdas, an HTTP API, a Cognito login with three groups (`admin`, `teacher`, `parent`), a CloudFront page, and two CloudWatch error alarms. There is no EC2, RDS, NAT gateway, or SMS.
 
 From the project root, with the AWS CLI and SAM CLI logged into the account you will use for the demo:
 
 ```bash
-sam build --template infra/template.yaml
-sam deploy --guided --template infra/template.yaml --parameter-overrides AlertEmail=you@example.com
+sam validate -t infra/template.yaml --lint
+sam build -t infra/template.yaml
+sam deploy --stack-name educonnect --region eu-north-1 \
+  --capabilities CAPABILITY_IAM --resolve-s3 --confirm-changeset \
+  --parameter-overrides AlertEmail=you@example.com
 ```
 
-Use your own email. After the stack finishes, open the email from AWS and confirm the subscription. The stack in this project is deployed in `eu-north-1` (Stockholm). Choose the region your account offers and use the same one for every `aws` command.
+Use your own email. After the stack finishes, open the email from AWS and confirm the subscription. The stack in this project is deployed in `eu-north-1` (Stockholm). Use the same region for every `aws` command.
 
-`POST /attendance` uses the same JSON as `data/samples/attendance_event.json`. The function writes the mark to DynamoDB. Status `absent` also sends one email. `GET /attendance/today` reads that table. Both routes require a Cognito id token. The base URL is the `ApiUrl` output.
+The API has no stage prefix, so the base URL is the `ApiUrl` output as it is. Every route needs a Cognito id token. The groups in that token decide who may write:
+
+| Route | Who may call it |
+| --- | --- |
+| `POST /attendance` | `teacher`, `admin`. An `absent` mark also sends one email. |
+| `GET /attendance/today` | Any signed-in user. Marks are not yet limited to a parent's own children, so use fake learners only. |
+| `POST /announcements` | `teacher`, `admin`. One whole-school announcement. |
+| `GET /announcements` | `parent`, `teacher`, `admin`. Newest first. |
+
+`POST /attendance` uses the same JSON as `data/samples/attendance_event.json`. An announcement body is `{"title": "...", "body": "..."}`, with a title up to 100 characters and a message up to 1000.
 
 The data-lake bucket is named `educonnect-data-lake-<account id>`. It stays private. Objects belong under `raw-events/YYYY/MM/DD/`, the same layout as `data/lake/` on the laptop.
 
-The page lives in `web/index.html`. CloudFront serves it from the private `educonnect-web-<account id>` bucket. After deploy, put the stack outputs into that file and upload it:
+Create a user, set a password, and put the user in a group. Type the password at the prompt so it does not stay in your shell history:
 
 ```bash
-aws s3 cp web/index.html s3://educonnect-web-ACCOUNT/index.html
+POOL=USER_POOL_ID   # from the UserPoolId output
+aws cognito-idp admin-create-user --region eu-north-1 --user-pool-id $POOL \
+  --username you@example.com \
+  --user-attributes Name=email,Value=you@example.com Name=email_verified,Value=true \
+  --message-action SUPPRESS
+read -s -p "Password: " PW; echo
+aws cognito-idp admin-set-user-password --region eu-north-1 --user-pool-id $POOL \
+  --username you@example.com --password "$PW" --permanent
+unset PW
+aws cognito-idp admin-add-user-to-group --region eu-north-1 --user-pool-id $POOL \
+  --username you@example.com --group-name teacher
 ```
 
-Open the `SiteUrl` output. Sign in with a user you create in the pool:
+The group is written into the token when you sign in, so sign in again after changing a user's group.
+
+The page lives in `web/index.html`. CloudFront serves it from the private `educonnect-web-<account id>` bucket. After deploy, check that `clientId` and `apiUrl` in that file match the stack outputs, then upload it and clear the CloudFront cache:
 
 ```bash
-aws cognito-idp admin-create-user --user-pool-id USER_POOL_ID --username you@example.com
-aws cognito-idp admin-set-user-password --user-pool-id USER_POOL_ID --username you@example.com --password 'DemoPass1' --permanent
+aws s3 sync web/ s3://educonnect-web-ACCOUNT --delete
+aws cloudfront create-invalidation --distribution-id DISTRIBUTION_ID --paths "/*"
 ```
 
-The CloudWatch alarm `educonnect-attendance-errors` emails the same SNS address if the Lambda reports an error.
+Open the `SiteUrl` output and sign in. The API only accepts browser calls from that address.
+
+The alarms `educonnect-attendance-errors` and `educonnect-announcements-errors` email the same SNS address if a Lambda reports an error.
 
 Delete the stack after the demo. Empty both buckets first if you uploaded files:
 
 ```bash
-sam delete --stack-name educonnect
+sam delete --stack-name educonnect --region eu-north-1
 ```
 
 ## What to open first
@@ -271,9 +297,12 @@ sam delete --stack-name educonnect
 | `src/batch/grade_distribution.py` | Spark job for the grade distribution of each class. |
 | `src/batch/export_lake.py` | Copies raw events and Spark reports into `raw-events/YYYY/MM/DD/`. |
 | `dags/educonnect_nightly.py` | Airflow DAG that runs the check, both Spark jobs, and the export. |
-| `infra/template.yaml` | SAM template for the API, Cognito, CloudFront, and the error alarm. |
+| `infra/template.yaml` | SAM template for the API, Cognito roles, CloudFront, and the error alarms. |
 | `src/aws/attendance_handler.py` | Lambda that stores a mark and emails an absence. |
-| `web/index.html` | One page that signs in with Cognito and reads today's marks. |
+| `src/aws/announcements_handler.py` | Lambda that stores and lists whole-school announcements. |
+| `tests/test_attendance_handler.py`, `tests/test_announcements_handler.py` | Check who may write and read, with no AWS account needed. |
+| `.github/workflows/ci.yml` | Lints the template and runs the tests that need no cloud account, Docker, or Spark. |
+| `web/index.html` | One page that signs in with Cognito, reads attendance and announcements, and shows the post form to teachers and admins. |
 | `docker-compose.yml` | Starts local PostgreSQL, Redis, and Redpanda. |
 | `docs/data-model.md` | How an event becomes rows, in plain language. |
 | `src/batch/upload_lake.py` | Copies the date folder to the S3 data lake. |
