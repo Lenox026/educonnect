@@ -17,4 +17,4 @@ jobs:
       - name: Lint the SAM template
         run: cfn-lint infra/template.yaml
       - name: Run the tests that need no cloud account, Docker or Spark
-        run: python -m pytest tests/test_attendance_handler.py tests/test_announcements_handler.py tests/test_quality.py tests/test_export_lake.py tests/test_absence_counter.py tests/test_reports.py tests/test_sftp_grades.py tests/test_upload_lake.py
+        run: python -m pytest tests/test_attendance_handler.py tests/test_announcements_handler.py tests/test_homework_handler.py tests/test_quality.py tests/test_export_lake.py tests/test_absence_counter.py tests/test_reports.py tests/test_sftp_grades.py tests/test_upload_lake.py
