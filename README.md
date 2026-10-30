@@ -375,4 +375,4 @@ sam delete --stack-name educonnect --region eu-north-1
 ECS stays unfinished. Lambda already runs the cloud compute, so it is left out on purpose. A parent-to-child link, timetables, messaging, AWS-side grades, and a query layer over the lake are also left out. Say that in the demo.
 
 
-
+WTC-9AEXXCYN
