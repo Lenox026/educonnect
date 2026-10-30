@@ -40,6 +40,8 @@ def handler(event, context):
             return respond(403, {"detail": "Teachers only."})
         return save_mark(event)
     if method == "GET" and path == "/attendance/today":
+        if not groups(event) & {"teacher", "admin"}:
+            return respond(403, {"detail": "Teachers only."})
         return list_today(event)
     return respond(404, {"detail": "Not found."})
 

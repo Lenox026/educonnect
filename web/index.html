@@ -152,7 +152,7 @@
 
     label:first-child { margin-top: 0; }
 
-    input, textarea {
+    input, textarea, select {
       width: 100%;
       margin-top: 0.35rem;
       padding: 0.7rem 0.75rem;
@@ -165,10 +165,12 @@
 
     textarea { resize: vertical; }
 
-    input:focus, textarea:focus {
+    input:focus, textarea:focus, select:focus {
       outline: 2px solid rgba(34, 197, 94, 0.35);
       border-color: var(--green);
     }
+
+    #mark-form { margin-top: 1rem; }
 
     .btn {
       margin-top: 1.1rem;
@@ -265,7 +267,7 @@
     <nav>
       <button type="button" class="nav-item" data-view="attendance" disabled>Attendance</button>
       <button type="button" class="nav-item" data-view="announcements" disabled>Announcements</button>
-      <span class="nav-item soon" aria-disabled="true">Homework <small>Soon</small></span>
+      <button type="button" class="nav-item" data-view="homework" disabled>Homework</button>
       <span class="nav-item soon" aria-disabled="true">Timetables <small>Soon</small></span>
       <span class="nav-item soon" aria-disabled="true">Messages <small>Soon</small></span>
       <span class="nav-item soon" aria-disabled="true">Reports <small>Soon</small></span>
@@ -293,11 +295,25 @@
 
       <section id="attendance-view" hidden>
         <h2>Today's attendance</h2>
-        <p class="lead">Look up one learner's marks for today.</p>
+        <p class="lead">Look up today's marks. Leave the learner id empty to see the whole day. Teachers can also record a mark; absent sends an email.</p>
         <form id="attendance-form" class="card">
-          <label>Learner id <input id="student" type="number" value="1001" min="1" required></label>
+          <label>Learner id <input id="student" type="number" value="1001" min="1"></label>
           <button type="submit" class="btn">Show today's marks</button>
         </form>
+        <form id="mark-form" class="card" hidden>
+          <label>Learner id <input id="mark-student" type="number" value="1001" min="1" required></label>
+          <label>Class id <input id="mark-class" type="number" value="10" min="1" required></label>
+          <label>Date <input id="mark-date" type="date" required></label>
+          <label>Status
+            <select id="mark-status" required>
+              <option value="present">present</option>
+              <option value="absent">absent</option>
+              <option value="late">late</option>
+            </select>
+          </label>
+          <button type="submit" class="btn">Save mark</button>
+        </form>
+        <p id="mark-message" class="notice" role="status"></p>
         <div id="attendance-result" class="card" hidden></div>
       </section>
 
@@ -311,6 +327,19 @@
         </form>
         <p id="announce-message" class="notice" role="status"></p>
         <div id="announce-list" class="announcements"></div>
+      </section>
+
+      <section id="homework-view" hidden>
+        <h2>Homework</h2>
+        <p class="lead">Work set by teachers, newest first.</p>
+        <form id="homework-form" class="card" hidden>
+          <label>Title <input id="h-title" maxlength="100" required></label>
+          <label>Instructions <textarea id="h-body" maxlength="1000" rows="4" required></textarea></label>
+          <label>Due date <input id="h-due" type="date"></label>
+          <button type="submit" class="btn">Post homework</button>
+        </form>
+        <p id="homework-message" class="notice" role="status"></p>
+        <div id="homework-list" class="announcements"></div>
       </section>
     </section>
   </main>
@@ -360,6 +389,9 @@
       navButtons().forEach((button) => { button.disabled = false; });
       $("whoami").textContent = session.email + " · " + (session.groups.join(", ") || "no role yet");
       $("announce-form").hidden = !canPost();
+      $("homework-form").hidden = !canPost();
+      $("mark-form").hidden = !canPost();
+      $("mark-date").value = schoolToday();
       showView("attendance");
     }
 
@@ -377,6 +409,9 @@
       $("attendance-result").replaceChildren();
       $("announce-list").replaceChildren();
       $("announce-message").textContent = "";
+      $("homework-list").replaceChildren();
+      $("homework-message").textContent = "";
+      $("mark-message").textContent = "";
       $("login-message").textContent = reason;
     }
 
@@ -417,14 +452,19 @@
       button.addEventListener("click", () => showView(button.dataset.view));
     });
 
+    function schoolToday() {
+      return new Date().toLocaleDateString("en-CA", { timeZone: "Africa/Johannesburg" });
+    }
+
     function showView(name) {
-      for (const view of ["attendance", "announcements"]) {
+      for (const view of ["attendance", "announcements", "homework"]) {
         $(view + "-view").hidden = view !== name;
       }
       navButtons().forEach((button) => {
         button.classList.toggle("here", button.dataset.view === name);
       });
       if (name === "announcements") loadAnnouncements();
+      if (name === "homework") loadHomework();
     }
 
     // ---------- API ----------
@@ -450,20 +490,55 @@
       const result = $("attendance-result");
       result.hidden = false;
       result.textContent = "Loading...";
-      const studentId = $("student").value;
+      const studentId = $("student").value.trim();
+      const query = studentId ? "?student_id=" + encodeURIComponent(studentId) : "";
       try {
-        const { ok, body } = await api("/attendance/today?student_id=" + encodeURIComponent(studentId));
+        const { ok, body } = await api("/attendance/today" + query);
         if (!ok) {
           result.textContent = body.detail || body.message || "The API refused the request.";
           return;
         }
         if (!body.marks.length) {
-          result.textContent = "No marks for learner " + studentId + " on " + body.attendance_date + ".";
+          result.textContent = studentId
+            ? "No marks for learner " + studentId + " on " + body.attendance_date + "."
+            : "No marks on " + body.attendance_date + ".";
           return;
         }
         showMarks(result, body.marks);
       } catch (error) {
         if (session.token) result.textContent = error.message;
+      }
+    });
+
+    $("mark-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const note = $("mark-message");
+      note.textContent = "Saving...";
+      try {
+        const { ok, body } = await api("/attendance", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            event_id: "web-" + Date.now(),
+            event_type: "attendance",
+            event_time: new Date().toISOString(),
+            student_id: Number($("mark-student").value),
+            class_id: Number($("mark-class").value),
+            attendance_date: $("mark-date").value,
+            status: $("mark-status").value
+          })
+        });
+        if (!ok) {
+          note.textContent = body.detail || body.message || "Could not save the mark.";
+          return;
+        }
+        note.textContent = body.notified
+          ? "Saved as absent. An email was sent."
+          : "Saved as " + body.status + ".";
+        $("student").value = $("mark-student").value;
+        $("attendance-form").requestSubmit();
+      } catch (error) {
+        if (session.token) note.textContent = error.message;
       }
     });
 
@@ -537,6 +612,69 @@
         $("a-title").value = "";
         $("a-body").value = "";
         await loadAnnouncements();
+        note.textContent = "Posted.";
+      } catch (error) {
+        if (session.token) note.textContent = error.message;
+      }
+    });
+
+    // ---------- homework ----------
+
+    async function loadHomework() {
+      const note = $("homework-message");
+      const list = $("homework-list");
+      note.textContent = "Loading...";
+      try {
+        const { ok, body } = await api("/homework");
+        if (!ok) {
+          list.replaceChildren();
+          note.textContent = body.detail || body.message || "Could not load homework.";
+          return;
+        }
+        note.textContent = body.homework.length ? "" : "No homework yet.";
+        list.replaceChildren(...body.homework.map(renderHomework));
+      } catch (error) {
+        if (session.token) note.textContent = error.message;
+      }
+    }
+
+    function renderHomework(item) {
+      const card = document.createElement("article");
+      card.className = "announcement card";
+      const title = document.createElement("h3");
+      title.textContent = item.title;
+      const text = document.createElement("p");
+      text.className = "announcement-body";
+      text.textContent = item.body;
+      const meta = document.createElement("small");
+      const due = item.due_date ? "Due " + item.due_date + " · " : "";
+      meta.textContent = due + item.author + " · " + new Date(item.created_at).toLocaleString();
+      card.append(title, text, meta);
+      return card;
+    }
+
+    $("homework-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const note = $("homework-message");
+      note.textContent = "Posting...";
+      try {
+        const { ok, body } = await api("/homework", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: $("h-title").value,
+            body: $("h-body").value,
+            due_date: $("h-due").value
+          })
+        });
+        if (!ok) {
+          note.textContent = body.detail || body.message || "Could not post.";
+          return;
+        }
+        $("h-title").value = "";
+        $("h-body").value = "";
+        $("h-due").value = "";
+        await loadHomework();
         note.textContent = "Posted.";
       } catch (error) {
         if (session.token) note.textContent = error.message;

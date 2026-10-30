@@ -103,6 +103,20 @@ class HandlerTests(unittest.TestCase):
         self.assertEqual(status, 400)
         self.assertEqual(self.store, {})
 
+    def get_today(self, params=None, groups="[teacher]"):
+        claims = {"cognito:groups": groups} if groups else {}
+        result = handler.handler(
+            {
+                "requestContext": {
+                    "http": {"method": "GET", "path": "/attendance/today"},
+                    "authorizer": {"jwt": {"claims": claims}},
+                },
+                "queryStringParameters": params or {},
+            },
+            None,
+        )
+        return result["statusCode"], json.loads(result["body"])
+
     def test_today_can_filter_one_learner(self):
         self.post(
             {
@@ -120,20 +134,40 @@ class HandlerTests(unittest.TestCase):
                 "status": "late",
             }
         )
-        result = handler.handler(
-            {
-                "requestContext": {"http": {"method": "GET", "path": "/attendance/today"}},
-                "queryStringParameters": {
-                    "attendance_date": "2026-10-21",
-                    "student_id": "1001",
-                },
-            },
-            None,
+        status, body = self.get_today(
+            {"attendance_date": "2026-10-21", "student_id": "1001"}
         )
-        body = json.loads(result["body"])
-        self.assertEqual(result["statusCode"], 200)
+        self.assertEqual(status, 200)
         self.assertEqual([mark["student_id"] for mark in body["marks"]], [1001])
         self.assertEqual(body["source"], "dynamodb")
+
+    def test_today_without_student_id_lists_the_day(self):
+        self.post(
+            {
+                "student_id": 1001,
+                "class_id": 10,
+                "attendance_date": "2026-10-21",
+                "status": "absent",
+            }
+        )
+        self.post(
+            {
+                "student_id": 1002,
+                "class_id": 10,
+                "attendance_date": "2026-10-21",
+                "status": "late",
+            }
+        )
+        status, body = self.get_today({"attendance_date": "2026-10-21"})
+        self.assertEqual(status, 200)
+        self.assertEqual(
+            sorted(mark["student_id"] for mark in body["marks"]),
+            [1001, 1002],
+        )
+
+    def test_parent_cannot_read_today(self):
+        status, body = self.get_today(groups="[parent]")
+        self.assertEqual(status, 403)
 
     def test_parent_cannot_post(self):
         status, body = self.post(
