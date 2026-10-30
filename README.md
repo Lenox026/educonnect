@@ -1,6 +1,12 @@
 # EduConnect
 
-EduConnect is a small school-data platform for the cloud computing and data engineering capstone. It turns fake attendance and grade events into tables, checks, and later into batch jobs and a serverless notification.
+Hello, welcome to EduConnect. Designed by Siphesihle Madalane.
+
+EduConnect is a small school-data platform. A teacher records a fake attendance mark. That mark is stored, checked, streamed, summarised, and, when a learner is absent, emailed. Parents can sign in and read school announcements and homework. Every name in this project is invented with Faker. Do not put real pupils, parents, or ID numbers in it.
+
+Schools generate the same facts every day: who came, who was late, who scored what. Those facts sit in registers, spreadsheets, and inboxes, so a parent finds out late and a teacher cannot see a class at a glance. EduConnect exists to show one path for that data: into a database, through a stream, into a nightly batch, and out to a small signed-in page in the cloud.
+
+This repo is the capstone for the WeThinkCode_ cloud computing and data engineering electives. The laptop half is the data pipeline. The AWS half is a serverless API and page. Both use the same fake school.
 
 The project currently has these slices:
 
@@ -10,7 +16,7 @@ The project currently has these slices:
 4. Redpanda, so each attendance mark is also published to a stream.
 5. Spark jobs for the weekly attendance rate of each class, and for grade distribution.
 6. An Airflow DAG that runs the check, both Spark jobs, and the date-folder export.
-7. An AWS API for attendance and announcements, defined in SAM, with Cognito login and roles.
+7. An AWS API for attendance, announcements, and homework, defined in SAM, with Cognito login and roles.
 8. An upload of the date folder to the S3 data lake.
 9. Debezium, which copies every PostgreSQL change onto Redpanda, and a stream job that counts absences per class.
 10. A second source: a CSV of re-marked grades that arrives on an SFTP server.
@@ -212,13 +218,61 @@ The API reads the newest folder under `data/lake/raw-events/`, which is the fold
 
 The tests use the project virtualenv. They do not need PostgreSQL, Redis, or AWS.
 
+## Architecture
+
+```mermaid
+flowchart LR
+  subgraph laptop [Laptop]
+    Faker[Faker events] --> QC[Pandas checks]
+    QC --> PG[(PostgreSQL)]
+    PG --> API[FastAPI]
+    API --> Redis[(Redis today)]
+    API --> RP[Redpanda]
+    QC --> Spark[Spark jobs]
+    Spark --> Lake[raw-events YYYY/MM/DD]
+    AF[Airflow DAG] --> QC
+    AF --> Spark
+    AF --> Lake
+  end
+  subgraph aws [AWS]
+    Page[CloudFront page] --> Cognito
+    Page --> HTTP[API Gateway]
+    HTTP --> L1[Attendance Lambda]
+    HTTP --> L2[Announcements Lambda]
+    HTTP --> L3[Homework Lambda]
+    L1 --> DDB[(DynamoDB)]
+    L2 --> DDB
+    L3 --> DDB
+    L1 --> SNS[SNS email]
+  end
+  Lake -.-> S3[(S3 data lake)]
+```
+
+## What is built, and what is not
+
+| Built | Not built (say this in the demo) |
+| --- | --- |
+| Local pipeline: Faker, 3NF PostgreSQL, Redis, Redpanda, Spark, Airflow, lake folders | A parent-to-child link, so a parent would only see their own learners |
+| AWS SAM: API Gateway, Lambda, DynamoDB, Cognito groups, SNS email, S3, CloudFront, CloudWatch alarm | Timetables, messaging, and reports on AWS; grades in the AWS API |
+| Page: sign-in, attendance lookup and mark form, announcements, homework | ECS (Lambda is the cloud compute); Athena or Glue over the lake |
+| Tests for the quality rules, Lambdas, lake export, and stream helpers | |
+
+Homework and the teacher-only attendance read live in this repo. They need one `sam deploy` before the live API serves them. Until then the live stack still has attendance and announcements only.
+
+Demo helpers:
+
+```bash
+bash scripts/demo_pipeline.sh
+bash scripts/demo_cloud.sh
+```
+
 ```bash
 .venv/bin/python -m unittest discover -s tests -v
 ```
 
 ## AWS API: attendance and announcements
 
-This slice runs in an AWS account, not in Docker. The template creates two private S3 buckets, two DynamoDB tables (attendance and announcements), an SNS email topic, two Lambdas, an HTTP API, a Cognito login with three groups (`admin`, `teacher`, `parent`), a CloudFront page, and two CloudWatch error alarms. There is no EC2, RDS, NAT gateway, or SMS.
+This slice runs in an AWS account, not in Docker. The template creates two private S3 buckets, two DynamoDB tables (attendance and announcements), an SNS email topic, two Lambdas, an HTTP API, a Cognito login with three groups (`admin`, `teacher`, `parent`), a CloudFront page, and a CloudWatch error alarm. There is no EC2, RDS, NAT gateway, or SMS.
 
 From the project root, with the AWS CLI and SAM CLI logged into the account you will use for the demo:
 
@@ -270,9 +324,9 @@ aws s3 sync web/ s3://educonnect-web-ACCOUNT --delete
 aws cloudfront create-invalidation --distribution-id DISTRIBUTION_ID --paths "/*"
 ```
 
-Open the `SiteUrl` output and sign in. The API only accepts browser calls from that address.
+Open the `SiteUrl` output and sign in.
 
-The alarms `educonnect-attendance-errors` and `educonnect-announcements-errors` email the same SNS address if a Lambda reports an error.
+The alarm `educonnect-attendance-errors` emails the same SNS address if the attendance Lambda reports an error.
 
 Delete the stack after the demo. Empty both buckets first if you uploaded files:
 
@@ -297,12 +351,15 @@ sam delete --stack-name educonnect --region eu-north-1
 | `src/batch/grade_distribution.py` | Spark job for the grade distribution of each class. |
 | `src/batch/export_lake.py` | Copies raw events and Spark reports into `raw-events/YYYY/MM/DD/`. |
 | `dags/educonnect_nightly.py` | Airflow DAG that runs the check, both Spark jobs, and the export. |
-| `infra/template.yaml` | SAM template for the API, Cognito roles, CloudFront, and the error alarms. |
+| `infra/template.yaml` | SAM template for the API, Cognito roles, CloudFront, and the error alarm. |
 | `src/aws/attendance_handler.py` | Lambda that stores a mark and emails an absence. |
 | `src/aws/announcements_handler.py` | Lambda that stores and lists whole-school announcements. |
 | `tests/test_attendance_handler.py`, `tests/test_announcements_handler.py` | Check who may write and read, with no AWS account needed. |
 | `.github/workflows/ci.yml` | Lints the template and runs the tests that need no cloud account, Docker, or Spark. |
-| `web/index.html` | One page that signs in with Cognito, reads attendance and announcements, and shows the post form to teachers and admins. |
+| `web/index.html` | One page that signs in with Cognito, records and reads attendance, and shows announcements and homework. |
+| `scripts/demo_cloud.sh` | Teacher token, absent mark, parent 403. |
+| `scripts/demo_pipeline.sh` | Local generate, check, load, Spark, and lake export. |
+| `src/aws/homework_handler.py` | Lambda that stores homework for parents to read. |
 | `docker-compose.yml` | Starts local PostgreSQL, Redis, and Redpanda. |
 | `docs/data-model.md` | How an event becomes rows, in plain language. |
 | `src/batch/upload_lake.py` | Copies the date folder to the S3 data lake. |
@@ -315,7 +372,7 @@ sam delete --stack-name educonnect --region eu-north-1
 
 ## What is next
 
-ECS stays unfinished. Lambda already runs the cloud compute, so it is left out on purpose. Grades are not in the AWS API yet; only attendance and announcements are. Say both in the demo. The local pipeline and this AWS stack are the parts that run.
+ECS stays unfinished. Lambda already runs the cloud compute, so it is left out on purpose. A parent-to-child link, timetables, messaging, AWS-side grades, and a query layer over the lake are also left out. Say that in the demo.
 
 
 verification code:
